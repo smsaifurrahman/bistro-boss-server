@@ -275,35 +275,43 @@ async function run() {
       // using aggregate pipeline
       app.get('/order-stats',async(req, res) =>{
          const result = await paymentCollection.aggregate([
-           {
-             $unwind: '$menuItemIds'
-           },
-           {
-             $lookup: {
-               from: 'menu',
-               localField: 'menuItemIds',
-               foreignField: '_id',
-               as: 'menuItems'
+            {
+               $addFields: {
+                 menuItemsObjectIds: {
+                   $map: {
+                     input: '$menuItems',
+                     as: 'itemId',
+                     in: { $toObjectId: '$$itemId' }
+                   }
+                 }
+               }
+             },
+             {
+               $lookup: {
+                 from: 'menu',
+                 localField: 'menuItemsObjectId',
+                 foreignField: '_id',
+                 as: 'menuItemsData'
+               }
+             },
+          {
+               $unwind: '$menuItemsData'
+             },
+             {
+               $group: {
+                 _id: '$menuItemsData.category',
+                 count: { $sum:1 },
+                 total: { $sum: '$menuItemsData.price' }
+               }
+             },
+             {
+               $project: {
+                 category: '$_id',
+                 count: 1,
+                 total: { $round: ['$total', 2] },
+                 _id: 0
+               }
              }
-           },
-           {
-             $unwind: '$menuItems'
-           },
-           {
-             $group: {
-               _id: '$menuItems.category',
-               quantity:{ $sum: 1 },
-               revenue: { $sum: '$menuItems.price'} 
-             }
-           },
-           {
-             $project: {
-               _id: 0,
-               category: '$_id',
-               quantity: '$quantity',
-               revenue: '$revenue'
-             }
-           }
          ]).toArray();
    
          res.send(result);

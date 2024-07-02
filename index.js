@@ -6,6 +6,15 @@ const cors = require("cors");
 require("dotenv").config();
 const jwt = require("jsonwebtoken");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const formData = require("form-data");
+const Mailgun = require("mailgun.js");
+const mailgun = new Mailgun(formData);
+
+const mg = mailgun.client({
+   username: "api",
+   key: process.env.MAILGUN_API_KEY,
+});
+
 const port = process.env.PORT || 5000;
 
 //middleware
@@ -27,7 +36,7 @@ const client = new MongoClient(uri, {
 async function run() {
    try {
       // Connect the client to the server	(optional starting in v4.7)
-      await client.connect();
+      // await client.connect();
       const menuCollection = client.db("bistroDb").collection("menu");
       const userCollection = client.db("bistroDb").collection("users");
       const reviewCollection = client.db("bistroDb").collection("reviews");
@@ -93,7 +102,8 @@ async function run() {
             admin = user?.role === "admin";
          }
          // console.log(admin);
-         res.send({ admin });
+
+        return res.send({ admin });
       });
 
       app.post("/users", async (req, res) => {
@@ -240,6 +250,28 @@ async function run() {
          };
 
          const deleteResult = await cartCollection.deleteMany(query);
+
+         // send email to user about payment confirmation
+         mg.messages
+            .create(process.env.MAIL_SENDING_DOMAIN, {
+               from: "Excited User <mailgun@sandbox24c3667809a046b1b604dbc4d8a3b157.mailgun.org>",
+               to: ["smsaifur525@gmail.com"],
+               subject: "Bistro Boss Order Confirmation",
+               text: "Testing some Mailgun awesomeness!",
+               html: `
+           <div>
+                <h1>Thank you for your order!</h1>
+                <h4>
+                Your Transaction Id: <strong> ${payment.TransactionId} </strong>
+                </h4>
+               <p>We would like to get feedback about your food</p>
+            
+           </div>
+            `,
+            })
+            .then((msg) => console.log(msg)) // logs response data
+            .catch((err) => console.log(err)); // logs any error
+
          res.send({ paymentResult, deleteResult });
       });
 
@@ -273,51 +305,52 @@ async function run() {
 
       // using aggregate pipeline
       // using aggregate pipeline
-      app.get('/order-stats',async(req, res) =>{
-         const result = await paymentCollection.aggregate([
-            {
-               $addFields: {
-                 menuItemsObjectIds: {
-                   $map: {
-                     input: '$menuItems',
-                     as: 'itemId',
-                     in: { $toObjectId: '$$itemId' }
-                   }
-                 }
-               }
-             },
-             {
-               $lookup: {
-                 from: 'menu',
-                 localField: 'menuItemsObjectId',
-                 foreignField: '_id',
-                 as: 'menuItemsData'
-               }
-             },
-          {
-               $unwind: '$menuItemsData'
-             },
-             {
-               $group: {
-                 _id: '$menuItemsData.category',
-                 count: { $sum:1 },
-                 total: { $sum: '$menuItemsData.price' }
-               }
-             },
-             {
-               $project: {
-                 category: '$_id',
-                 count: 1,
-                 total: { $round: ['$total', 2] },
-                 _id: 0
-               }
-             }
-         ]).toArray();
-   
+      app.get("/order-stats", async (req, res) => {
+         const result = await paymentCollection
+            .aggregate([
+               {
+                  $addFields: {
+                     menuItemsObjectIds: {
+                        $map: {
+                           input: "$menuItems",
+                           as: "itemId",
+                           in: { $toObjectId: "$$itemId" },
+                        },
+                     },
+                  },
+               },
+               {
+                  $lookup: {
+                     from: "menu",
+                     localField: "menuItemsObjectId",
+                     foreignField: "_id",
+                     as: "menuItemsData",
+                  },
+               },
+               {
+                  $unwind: "$menuItemsData",
+               },
+               {
+                  $group: {
+                     _id: "$menuItemsData.category",
+                     count: { $sum: 1 },
+                     total: { $sum: "$menuItemsData.price" },
+                  },
+               },
+               {
+                  $project: {
+                     category: "$_id",
+                     count: 1,
+                     total: { $round: ["$total", 2] },
+                     _id: 0,
+                  },
+               },
+            ])
+            .toArray();
+
          res.send(result);
-   
-       })
-   
+      });
+
       // app.get("/order-stats", async (req, res) => {
       //    const result = await paymentCollection
       //       .aggregate([
@@ -344,10 +377,10 @@ async function run() {
       // });
 
       // Send a ping to confirm a successful connection
-      await client.db("admin").command({ ping: 1 });
-      console.log(
-         "Pinged your deployment. You successfully connected to MongoDB!"
-      );
+      // await client.db("admin").command({ ping: 1 });
+      // console.log(
+      //    "Pinged your deployment. You successfully connected to MongoDB!"
+      // );
    } finally {
       // Ensures that the client will close when you finish/error
       // await client.close();
